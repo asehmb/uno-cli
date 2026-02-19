@@ -1,0 +1,8 @@
+NEXT
+create a deck queue
+
+create 4 hands
+
+create bots with random choices
+
+connect to other players

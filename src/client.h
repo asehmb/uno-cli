@@ -10,6 +10,7 @@
 typedef struct {
     uint8_t player_id;
     int server_sock;
+    Hand* current_hand;
 } ClientGameDetails;
 
 void enable_raw_mode();

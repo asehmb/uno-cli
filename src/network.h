@@ -83,6 +83,7 @@ int setup_server(uint16_t port);
 void close_server(int server_fd);
 
 
+int set_socket_timeout(int fd, int timeout_sec);
 
 int read_packet(int client_fd, struct Packet** packet);
 

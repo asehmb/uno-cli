@@ -1,1 +1,1 @@
-bin/release/uno
+bin/debug/uno

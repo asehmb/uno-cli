@@ -9,6 +9,18 @@
 #include <pthread.h>
 #include <errno.h>
 
+int set_socket_timeout(int fd, int seconds) {
+    struct timeval tv;
+    tv.tv_sec = seconds;
+    tv.tv_usec = 0;
+    
+    // Set the send timeout
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
 // returns offset of next byte to write in dest, or -1 on error
 int write_bytes(void* src, void* dest, int size) {
     if (src == NULL || dest == NULL) {
@@ -234,6 +246,7 @@ int send_packet(int client_fd, struct Packet* packet) {
 
     return 0;
 }
+
 int read_packet(int client_fd, struct Packet** packet) {
     uint32_t net_len;
     

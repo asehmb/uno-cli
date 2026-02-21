@@ -23,6 +23,7 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             run_server(clients, server_fd);
+            close_game_server(clients, 0, server_fd);
             return 0;
         }
         if (strcmp(argv[1], "--client") == 0) {

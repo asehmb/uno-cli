@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include "logger.h"
 
 #define MAX_PLAYERS 4
 extern struct GameDetails game_details; // Declare the global game_details from uno.c
@@ -134,6 +135,7 @@ void run_server(int clients[4], int server_fd) {
             };
             send_packet(clients[i], &state_packet);
             send_player_hand_to_client(clients[i], i);
+            LOG_INFO("Sent game state and hand to player %d", i);
         }
 
         // Get the current player
@@ -147,15 +149,18 @@ void run_server(int clients[4], int server_fd) {
         int result = read_packet(current_player_sock, &packet);
 
         if (result == READ_OK) {
+            LOG_INFO("Received packet from player %d: type %d", current_player, packet->type);
             if (packet->type == MSG_ACTION) {
                 struct Action action = packet->data.action;
                 int result;
 
                 switch (action.type) {
                     case ACTION_PLAY_CARD:
+                        LOG_INFO("\tPlayer %d attempts to play card at index %d", current_player, action.card_index);
                         result = play_card(current_player, action.card_index);
                         if (result == -1) {
                             // Invalid play, ask for action again
+                            LOG_WARN("\tInvalid play by player %d: card index %d", current_player, action.card_index);
                             struct Packet error_packet = {
                                 MSG_ERROR,
                                 .data.error_code = ERROR_INVALID_ACTION
@@ -163,6 +168,7 @@ void run_server(int clients[4], int server_fd) {
                             result = send_packet(current_player_sock, &error_packet);
                             if (result < 0) {
                                 // Handle send error (e.g., client disconnected)
+                                LOG_ERROR("Failed to send error packet to player %d, closing connection", current_player);
                                 clients[current_player] = -1; // Mark client as disconnected
                                 close_game_server(clients, 1, server_fd); // Close server due to error
                             }
@@ -171,21 +177,22 @@ void run_server(int clients[4], int server_fd) {
                         if (result == 4 || result == 5) { // wild card
                             change_color(action.chosen_color);
                         }
-                        game_details.current_player = (game_details.current_player + 1) % MAX_PLAYERS;
+                        next_player();
                         break;
                     case ACTION_DRAW_CARD:
                         pickup_card(current_player);
                         // TODO: Implement logic for playing after drawing or skipping after drawing.
-                        game_details.current_player = (game_details.current_player + 1) % MAX_PLAYERS; // Advance turn after drawing
+                        next_player(); // Advance turn after drawing
                         break;
                     case ACTION_SKIPPED:
                         // Player explicitly skipped their turn.
-                        game_details.current_player = (game_details.current_player + 1) % MAX_PLAYERS; // Advance turn
+                        next_player(); // Advance turn
                         break;
                 }
 
                 // Check for win condition
                 if (game_details.hands[current_player].card_count == 0) {
+                    LOG_INFO("Player %d has won the game!", current_player);
                     running = 0; // End game loop
                     // Send game over message to all clients
                     for (int j = 0; j < MAX_PLAYERS; j++) {

@@ -203,13 +203,13 @@ void redraw_hand(const CardDetails* cards, int card_count, int selected_index, i
 
             // Redraw previously selected card (unhighlighted)
             // It was at base_y - 1, now needs to be drawn at base_y
-            clear_card_area(start_x + prev_selected_index * (CARD_WIDTH - 1), base_y - 1);
-            draw_single_card_at_coords(start_x + prev_selected_index * (CARD_WIDTH - 1), base_y, &cards[prev_selected_index]);
+            clear_card_area(start_x + prev_selected_index * (CARD_WIDTH), base_y - 1);
+            draw_single_card_at_coords(start_x + prev_selected_index * (CARD_WIDTH), base_y, &cards[prev_selected_index]);
 
             // Redraw newly selected card (highlighted)
             // It was at base_y, now needs to be drawn at base_y - 1
-            clear_card_area(start_x + selected_index * (CARD_WIDTH - 1), base_y);
-            draw_single_card_at_coords(start_x + selected_index * (CARD_WIDTH - 1), base_y - 1, &cards[selected_index]);
+            clear_card_area(start_x + selected_index * (CARD_WIDTH), base_y);
+            draw_single_card_at_coords(start_x + selected_index * (CARD_WIDTH), base_y - 1, &cards[selected_index]);
         }
 
 }
@@ -279,7 +279,7 @@ void redraw_whole_hand(const CardDetails* cards, int card_count, int selected_in
     }
 }
 
-void read_input(int c, int* selected_index, int cols, int y, int prev_selected_index, Hand* current_hand) {
+void read_input(int c, int* selected_index, int cols, int y, int prev_selected_index, Hand* current_hand, int server_sock, uint8_t player_id) {
     if (c == '\033') {
             char seq[2];
             usleep(1000); // small delay to allow full escape sequence to arrive
@@ -326,8 +326,12 @@ void read_input(int c, int* selected_index, int cols, int y, int prev_selected_i
         if (c==10) {
             // enter key
             debug_print("Action: PLAY CARD at Index %d", *selected_index);
-            int old_count = current_hand->card_count;
-            int old_start_x = (cols/2)-((old_count*CARD_WIDTH)/2);
+            struct Action play_action = {
+                .type = ACTION_PLAY_CARD,
+                .player_id = player_id, // will be set by server
+                .card_index = *selected_index,
+                .chosen_color = 0,
+            };
             
             CardDetails* played_card = &current_hand->cards[*selected_index];
             if (strcmp(played_card->color_str, "black") == 0) {
@@ -337,49 +341,37 @@ void read_input(int c, int* selected_index, int cols, int y, int prev_selected_i
                 while (color_choice < '1' || color_choice > '4') {
                     color_choice = get_input();
                 }
-                uint8_t chosen_color_code;
                 switch (color_choice) {
-                    case '1': chosen_color_code = 196; break; // red
-                    case '2': chosen_color_code = 40; break; // green
-                    case '3': chosen_color_code = 20; break; // blue
-                    case '4': chosen_color_code = 220; break; // yellow
+                    case '1': play_action.chosen_color = 196; break; // red
+                    case '2': play_action.chosen_color = 40; break; // green
+                    case '3': play_action.chosen_color = 20; break; // blue
+                    case '4': play_action.chosen_color = 220; break; // yellow
                 }
-                play_card(0, *selected_index);
-                change_color(chosen_color_code);
+       
 
-            } else {
-                play_card(0, *selected_index);
             }
+            
+            struct Packet packet = {
+                .type = MSG_ACTION,
+                .data.action = play_action
+            };
+            send_packet(server_sock, &packet);
 
-            if (*selected_index >= current_hand->card_count && current_hand->card_count > 0) {
-                *selected_index = current_hand->card_count - 1;
-            } else if (current_hand->card_count == 0) {
-                *selected_index = 0;
-            }
-
-            // Clear the old hand's area to prevent artifacts
-            for(int i = 0; i < old_count; i++) {
-                clear_card_area(old_start_x + i * (CARD_WIDTH - 1), y - 1);
-                clear_card_area(old_start_x + i * (CARD_WIDTH - 1), y);
-            }
-
-            if (current_hand->card_count > 0) {
-                redraw_whole_hand(current_hand->cards, current_hand->card_count, *selected_index, cols, y);
-            }
         }
         if (c==32) {
             // space key
-            pickup_card(0);
+            struct Action draw_action = {
+                .type = ACTION_DRAW_CARD,
+                .player_id = player_id,
+                .card_index = 0, // Ignored
+                .chosen_color = 0
+            };
+            struct Packet packet = {
+                .type = MSG_ACTION,
+                .data.action = draw_action
+            };
+            send_packet(server_sock, &packet);
             
-            // Clear the old hand's area to prevent artifacts
-            int old_start_x = (cols/2)-(((current_hand->card_count-1)*CARD_WIDTH)/2);
-            for(int i = 0; i < current_hand->card_count - 1; i++) {
-                clear_card_area(old_start_x + i * (CARD_WIDTH - 1), y - 1);
-                clear_card_area(old_start_x + i * (CARD_WIDTH - 1), y);
-            }
-
-            redraw_whole_hand(current_hand->cards, current_hand->card_count, *selected_index, cols, y);
-
             draw_deck(60, 5 );
         }
 
@@ -473,6 +465,7 @@ void run_client(const ClientGameDetails details) {
 
 
     Hand current_hand;
+    current_hand.cards = malloc(sizeof(CardDetails) * hand_packet->data.player_hand.num_cards);
     current_hand.card_count = hand_packet->data.player_hand.num_cards;
     memcpy(current_hand.cards,
            hand_packet->data.player_hand.cards,
@@ -503,12 +496,14 @@ void run_client(const ClientGameDetails details) {
                       cols,
                       rows - CARD_HEIGHT);
 
-    draw_deck((cols/2)-4, (rows/2));
-    draw_single_card_at_coords(4+(cols/2), rows/2, &top_card);
+    draw_deck((cols/2)-8, (rows/2));
+    draw_single_card_at_coords(8+(cols/2), rows/2, &top_card);
 
     fflush(stdout);
 
     LOG_INFO("Entering main client loop");
+
+    set_socket_timeout(details.server_sock, 3); // Non-blocking with select
 
 
     fd_set readfds;
@@ -541,14 +536,16 @@ void run_client(const ClientGameDetails details) {
             if (c == 'q') {
                 running = 0;
             } else if (c != -1) {
-                prev_selected_index = selected_index;
 
                 read_input(c,
                            &selected_index,
                            cols,
                            rows - CARD_HEIGHT,
                            prev_selected_index,
-                           &current_hand);
+                           &current_hand,
+                           details.server_sock,
+                           details.player_id);
+                prev_selected_index = selected_index;
             }
         }
 
@@ -560,7 +557,8 @@ void run_client(const ClientGameDetails details) {
             struct Packet* packet;
             int status = read_packet(details.server_sock, &packet);
 
-            if (status <= 0) {
+            if (status < 0) {
+                debug_print("Error reading packet from server: %d", status);
                 printf("Server disconnected.\n");
                 running = 0;
             } else {
@@ -583,6 +581,7 @@ void run_client(const ClientGameDetails details) {
                         }
 
                         // Update Data
+                        current_hand.cards = realloc(current_hand.cards, sizeof(CardDetails) * packet->data.player_hand.num_cards);
                         current_hand.card_count = packet->data.player_hand.num_cards;
                         memcpy(current_hand.cards, packet->data.player_hand.cards, 
                             sizeof(CardDetails) * current_hand.card_count);
@@ -608,7 +607,7 @@ void run_client(const ClientGameDetails details) {
                                   cols,
                                   rows - CARD_HEIGHT);
 
-                draw_single_card_at_coords(4+(cols/2), rows/2, &top_card);
+                draw_single_card_at_coords(8+(cols/2), rows/2, &top_card);
 
                 fflush(stdout);
             }

@@ -231,34 +231,39 @@ void change_color(uint8_t color_code) {
     }
 }
 
+static uint8_t pick_bot_wild_color(const Hand* bot_hand) {
+    uint8_t colors[] = {196, 40, 20, 220};
+    int color_counts[] = {0, 0, 0, 0};
+    for (int i = 0; i < bot_hand->card_count; i++) {
+        if (strcmp(bot_hand->cards[i].color_str, "red") == 0) color_counts[0]++;
+        else if (strcmp(bot_hand->cards[i].color_str, "green") == 0) color_counts[1]++;
+        else if (strcmp(bot_hand->cards[i].color_str, "blue") == 0) color_counts[2]++;
+        else if (strcmp(bot_hand->cards[i].color_str, "yellow") == 0) color_counts[3]++;
+    }
+
+    int best_idx = 0;
+    for (int i = 1; i < 4; i++) {
+        if (color_counts[i] > color_counts[best_idx]) {
+            best_idx = i;
+        }
+    }
+    if (color_counts[best_idx] == 0) {
+        return colors[rand() % 4];
+    }
+    return colors[best_idx];
+}
+
 
 int bot_play(int player_num) {
-    if (player_num == 0 || player_num >= 4) return -1; // Not a bot
+    if (player_num < 0 || player_num >= 4) return -1;
 
     Hand* bot_hand = get_player_hand(player_num);
     for (int i = 0; i < bot_hand->card_count; i++) {
         if (can_play_card(player_num, i)) {
             int card_effect = play_card(player_num, i);
             if (card_effect != -1) {
-                switch (card_effect) {
-                    case 1: // Skip
-                        next_player();
-                        break;
-                    case 2: // Reverse
-                        // Direction is already changed in play_card
-                        break;
-                    case 3: // Draw 2
-                        next_player();
-                        pickup_card(get_current_player());
-                        pickup_card(get_current_player());
-                        break;
-                    case 5: // Wild Draw 4
-                        next_player();
-                        pickup_card(get_current_player());
-                        pickup_card(get_current_player());
-                        pickup_card(get_current_player());
-                        pickup_card(get_current_player());
-                        break;
+                if (card_effect == 4 || card_effect == 5) {
+                    change_color(pick_bot_wild_color(bot_hand));
                 }
             }
             return card_effect;
